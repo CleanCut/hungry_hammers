@@ -2,6 +2,12 @@ use bevy::prelude::*;
 
 fn main() {
     App::new()
+        .insert_resource(WindowDescriptor {
+            width: 720.0,
+            height: 720.0,
+            title: "Hungry Hammers".into(),
+            ..Default::default()
+        })
         .add_plugins(DefaultPlugins)
         .add_startup_system(template_setup)
         .add_system(template_animation)
