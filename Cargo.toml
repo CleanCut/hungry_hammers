@@ -15,7 +15,7 @@ incremental = false
 codegen-units = 1        # lowered from 16 as per https://rapier.rs/docs/user_guides/bevy_plugin/common_mistakes/
 
 # But compile the project itself in debug mode if `--release` is not passed in
-[profile.dev.package.bevy_platformer]
+[profile.dev.package.hungry_hammers]
 opt-level = 0
 debug = true
 debug-assertions = true

@@ -143,7 +143,7 @@ struct Hammer {
 
 impl Hammer {
     fn new(id: usize, start: Vec2, end: Vec2) -> Self {
-        let mut forward_timer = Timer::from_seconds(0.125, false);
+        let forward_timer = Timer::from_seconds(0.125, false);
         let mut back_timer = Timer::from_seconds(0.5, false);
         back_timer.tick(Duration::from_secs_f32(10.0));
 
