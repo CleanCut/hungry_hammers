@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use hungry_hammers::{marble::spawn_marble, prelude::*};
@@ -87,13 +89,28 @@ fn setup(
         }
     }
 
-    // Hammer
+    // Hammers
+    use std::f32::consts::*;
+    spawn_hammer(&mut commands, Vec2::new(-300.0, -300.0), FRAC_PI_4, 0);
+    spawn_hammer(
+        &mut commands,
+        Vec2::new(-300.0, 300.0),
+        FRAC_PI_2 + FRAC_PI_4,
+        1,
+    );
+    spawn_hammer(&mut commands, Vec2::new(300.0, 300.0), PI + FRAC_PI_4, 2);
+    spawn_hammer(
+        &mut commands,
+        Vec2::new(300.0, -300.0),
+        PI + FRAC_PI_2 + FRAC_PI_4,
+        3,
+    );
+}
+
+pub fn spawn_hammer(commands: &mut Commands, start: Vec2, angle: f32, id: usize) {
+    let end = start * 0.6;
     let rigid_body = RigidBodyBundle {
-        position: (
-            Vec2::new(scale(600.0), scale(600.0)),
-            std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_4,
-        )
-            .into(),
+        position: (Vec2::new(scale(start.x), scale(start.y)), angle).into(),
         ccd: RigidBodyCcd {
             ccd_enabled: true,
             ..Default::default()
@@ -109,26 +126,71 @@ fn setup(
     commands
         .spawn_bundle(collider)
         .insert_bundle(rigid_body)
-        .insert(ColliderDebugRender::with_id(0))
+        .insert(ColliderDebugRender::with_id(id))
         .insert(ColliderPositionSync::Discrete)
-        .insert(Hammer);
+        .insert(Hammer::new(id, start, end));
 }
 
 #[derive(Component)]
-struct Hammer;
+struct Hammer {
+    id: usize,
+    start: Vec2,
+    end: Vec2,
+    forward_timer: Timer,
+    back_timer: Timer,
+    forward: bool,
+}
+
+impl Hammer {
+    fn new(id: usize, start: Vec2, end: Vec2) -> Self {
+        let mut forward_timer = Timer::from_seconds(0.125, false);
+        let mut back_timer = Timer::from_seconds(0.5, false);
+        back_timer.tick(Duration::from_secs_f32(10.0));
+
+        Hammer {
+            id,
+            start,
+            end,
+            forward_timer,
+            back_timer,
+            forward: false,
+        }
+    }
+}
 
 fn movement(
-    mut hammer_pos_components: Query<&mut RigidBodyPositionComponent, With<Hammer>>,
-    mut cursor_moved_events: EventReader<CursorMoved>,
+    mut hammer_pos_components: Query<(&mut RigidBodyPositionComponent, &mut Hammer)>,
+    time: Res<Time>,
+    mouse: Res<Input<MouseButton>>,
 ) {
-    let mut mouse_location = None;
-    for event in cursor_moved_events.iter() {
-        mouse_location = Some(event.position.to_world_coords());
-    }
-    if let Some(location) = mouse_location {
-        for mut hammer_pos_component in hammer_pos_components.iter_mut() {
-            hammer_pos_component.next_position.translation =
-                Vec2::new(scale(location.x), scale(location.y)).into();
+    for (mut hammer_pos_component, mut hammer) in hammer_pos_components.iter_mut() {
+        if hammer.id == 0 && mouse.just_pressed(MouseButton::Left) && !hammer.forward {
+            hammer.forward = true;
+            let new_duration_secs =
+                hammer.forward_timer.duration().as_secs_f32() * hammer.back_timer.percent_left();
+            hammer
+                .forward_timer
+                .set_elapsed(Duration::from_secs_f32(new_duration_secs));
+        }
+        if hammer.forward {
+            let finished = hammer.forward_timer.tick(time.delta()).just_finished();
+            let new_pos = hammer
+                .start
+                .lerp(hammer.end, hammer.forward_timer.percent());
+            hammer_pos_component.next_position.translation.vector =
+                Vec2::new(scale(new_pos.x), scale(new_pos.y)).into();
+            if finished {
+                hammer.forward = false;
+                hammer.forward_timer.reset();
+                hammer.back_timer.reset();
+            }
+        } else {
+            hammer.back_timer.tick(time.delta());
+            let new_pos = hammer
+                .start
+                .lerp(hammer.end, hammer.back_timer.percent_left());
+            hammer_pos_component.next_position.translation.vector =
+                Vec2::new(scale(new_pos.x), scale(new_pos.y)).into();
         }
     }
 }
