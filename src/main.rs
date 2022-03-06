@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use bevy::{asset::AssetServerSettings, prelude::*};
+#[cfg(target_family = "wasm")]
+use bevy::asset::AssetServerSettings;
+use bevy::prelude::*;
 use bevy_prototype_lyon::{
     plugin::ShapePlugin,
     prelude::{DrawMode, GeometryBuilder, PathBuilder, StrokeMode},
@@ -11,23 +13,26 @@ use hungry_hammers::{marble::spawn_marble, prelude::*};
 struct DebugInitialized(bool);
 
 fn main() {
-    App::new()
-        .insert_resource(WindowDescriptor {
-            width: 720.0,
-            height: 720.0,
-            title: "Hungry Hammers".into(),
-            ..Default::default()
-        })
-        .insert_resource(DebugInitialized(false))
-        .add_plugins(DefaultPlugins)
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugin(RapierRenderPlugin)
-        .add_plugin(ShapePlugin)
-        .add_startup_system(setup.label("setup"))
-        // .add_startup_system_to_stage(StartupStage::PostStartup, setup_debug_colliders)
-        .add_system(setup_debug_colliders)
-        .add_system(movement)
-        .run();
+    let mut app = App::new();
+    #[cfg(target_family = "wasm")]
+    app.insert_resource(AssetServerSettings {
+        asset_folder: "static/hungry_hammers/assets".to_string(),
+    });
+    app.insert_resource(WindowDescriptor {
+        width: 720.0,
+        height: 720.0,
+        title: "Hungry Hammers".into(),
+        ..Default::default()
+    })
+    .insert_resource(DebugInitialized(false))
+    .add_plugins(DefaultPlugins)
+    .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+    .add_plugin(RapierRenderPlugin)
+    .add_plugin(ShapePlugin)
+    .add_startup_system(setup.label("setup"))
+    .add_system(setup_debug_colliders)
+    .add_system(movement);
+    app.run();
 }
 
 fn setup(
@@ -35,13 +40,7 @@ fn setup(
     mut rapier_config: ResMut<RapierConfiguration>,
     asset_server: Res<AssetServer>,
     mut integration_parameters: ResMut<IntegrationParameters>,
-    mut asset_server_settings: ResMut<AssetServerSettings>,
 ) {
-    // The assets path is different if this is being hosted on agileperception.com
-    if cfg!(target_arch = "wasm") {
-        asset_server_settings.asset_folder = "static/hungry_hammers/assets".to_string();
-    }
-    println!("called setup");
     // configure physics
     rapier_config.scale = PHYSICS_SCALE;
     rapier_config.gravity = Vec2::ZERO.into();
@@ -201,7 +200,6 @@ fn setup_debug_collider(
             (v.x + (a * he[0])) * sin + (v.y + (b * he[1])) * cos,
         ));
     }
-    println!("{points:?}");
     let mut path_builder = PathBuilder::new();
     let offset = Vec2::new(0.0, 425.0); // I have no idea why I need this correction, but it works
     path_builder.move_to(points[0] + offset);
