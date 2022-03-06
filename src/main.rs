@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use bevy::prelude::*;
+use bevy::{asset::AssetServerSettings, prelude::*};
 use bevy_prototype_lyon::{
     plugin::ShapePlugin,
     prelude::{DrawMode, GeometryBuilder, PathBuilder, StrokeMode},
@@ -35,7 +35,12 @@ fn setup(
     mut rapier_config: ResMut<RapierConfiguration>,
     asset_server: Res<AssetServer>,
     mut integration_parameters: ResMut<IntegrationParameters>,
+    mut asset_server_settings: ResMut<AssetServerSettings>,
 ) {
+    // The assets path is different if this is being hosted on agileperception.com
+    if cfg!(target_arch = "wasm") {
+        asset_server_settings.asset_folder = "static/hungry_hammers/assets".to_string();
+    }
     println!("called setup");
     // configure physics
     rapier_config.scale = PHYSICS_SCALE;
@@ -137,7 +142,7 @@ pub fn spawn_hammer(commands: &mut Commands, start: Vec2, angle: f32, id: usize)
     commands
         .spawn_bundle(collider)
         .insert_bundle(rigid_body)
-        .insert(ColliderDebugRender::with_id(id))
+        //.insert(ColliderDebugRender::with_id(id))
         .insert(ColliderPositionSync::Discrete)
         .insert(Hammer::new(id, start, end));
 }
