@@ -1,8 +1,14 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
+use bevy_prototype_lyon::{
+    plugin::ShapePlugin,
+    prelude::{DrawMode, GeometryBuilder, PathBuilder, StrokeMode},
+};
 use bevy_rapier2d::prelude::*;
 use hungry_hammers::{marble::spawn_marble, prelude::*};
+
+struct DebugInitialized(bool);
 
 fn main() {
     App::new()
@@ -12,10 +18,14 @@ fn main() {
             title: "Hungry Hammers".into(),
             ..Default::default()
         })
+        .insert_resource(DebugInitialized(false))
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugin(RapierRenderPlugin)
-        .add_startup_system(setup)
+        .add_plugin(ShapePlugin)
+        .add_startup_system(setup.label("setup"))
+        // .add_startup_system_to_stage(StartupStage::PostStartup, setup_debug_colliders)
+        .add_system(setup_debug_colliders)
         .add_system(movement)
         .run();
 }
@@ -26,6 +36,7 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut integration_parameters: ResMut<IntegrationParameters>,
 ) {
+    println!("called setup");
     // configure physics
     rapier_config.scale = PHYSICS_SCALE;
     rapier_config.gravity = Vec2::ZERO.into();
@@ -158,12 +169,73 @@ impl Hammer {
     }
 }
 
+#[derive(Component)]
+struct DebugForHammer(usize);
+
+fn setup_debug_collider(
+    commands: &mut Commands,
+    shape: &ColliderShapeComponent,
+    position: &ColliderPositionComponent,
+    id: usize,
+) {
+    // Add the collider lines, a visual representation of the sprite's collider
+    // he[0] is half the length of one dimension, he[1] is half the length of the other
+    let he: Vec2 = unscale_vec2(shape.0.as_cuboid().unwrap().half_extents.into());
+    // These are used to rotate the points of the collider cuboid to the right place
+    let sin = position.0.rotation.angle().sin();
+    let cos = position.0.rotation.angle().cos();
+    // These are the (x, y) coordinates of the center of the cuboid
+    let v: Vec2 = unscale_vec2(position.0.translation.vector.into());
+    // Make a vector of the corners of the cuboid, so we can draw the shape
+    let mut points = Vec::<Vec2>::new();
+    for (a, b) in [(1., 1.), (1., -1.), (-1., -1.), (-1., 1.)] {
+        // compute the four corners. we have to shift a half extent from center and then rotate
+        // TODO: Why is the y value ending up -425.0 too low???
+        points.push(Vec2::new(
+            (v.x + (a * he[0])) * cos - (v.y + (b * he[1])) * sin,
+            (v.x + (a * he[0])) * sin + (v.y + (b * he[1])) * cos,
+        ));
+    }
+    println!("{points:?}");
+    let mut path_builder = PathBuilder::new();
+    let offset = Vec2::new(0.0, 425.0); // I have no idea why I need this correction, but it works
+    path_builder.move_to(points[0] + offset);
+    for point in &points[1..] {
+        path_builder.line_to(*point + offset);
+    }
+    path_builder.close(); // draws the line from the last point to the first point
+    let line = path_builder.build();
+    let transform = Transform::from_xyz(v.x, v.y, 999.9); // put the debug lines on top of everything else
+    commands
+        .spawn_bundle(GeometryBuilder::build_as(
+            &line.0, // can be changed to `&line` once bevy_prototype_lyon > 0.4 is released
+            DrawMode::Stroke(StrokeMode::new(Color::WHITE, 2.0)),
+            transform,
+        ))
+        .insert(DebugForHammer(id));
+}
+
+fn setup_debug_colliders(
+    mut commands: Commands,
+    query: Query<(&ColliderShapeComponent, &ColliderPositionComponent, &Hammer)>,
+    mut debug_initialized: ResMut<DebugInitialized>,
+) {
+    if !debug_initialized.0 {
+        debug_initialized.0 = true;
+        for (shape, position, hammer) in query.iter() {
+            setup_debug_collider(&mut commands, shape, position, hammer.id);
+        }
+    }
+}
+
 fn movement(
     mut hammer_pos_components: Query<(&mut RigidBodyPositionComponent, &mut Hammer)>,
+    mut hammer_debug: Query<(&mut Transform, &DebugForHammer)>,
     time: Res<Time>,
     mouse: Res<Input<MouseButton>>,
 ) {
     for (mut hammer_pos_component, mut hammer) in hammer_pos_components.iter_mut() {
+        // Process a click
         if hammer.id == 0 && mouse.just_pressed(MouseButton::Left) && !hammer.forward {
             hammer.forward = true;
             let new_duration_secs =
@@ -172,9 +244,11 @@ fn movement(
                 .forward_timer
                 .set_elapsed(Duration::from_secs_f32(new_duration_secs));
         }
+        // Handle already moving hammers
+        let new_pos: Vec2;
         if hammer.forward {
             let finished = hammer.forward_timer.tick(time.delta()).just_finished();
-            let new_pos = hammer
+            new_pos = hammer
                 .start
                 .lerp(hammer.end, hammer.forward_timer.percent());
             hammer_pos_component.next_position.translation.vector =
@@ -186,11 +260,16 @@ fn movement(
             }
         } else {
             hammer.back_timer.tick(time.delta());
-            let new_pos = hammer
+            new_pos = hammer
                 .start
                 .lerp(hammer.end, hammer.back_timer.percent_left());
             hammer_pos_component.next_position.translation.vector =
                 Vec2::new(scale(new_pos.x), scale(new_pos.y)).into();
+        }
+        for (mut transform, belongs_to) in hammer_debug.iter_mut() {
+            if hammer.id == belongs_to.0 {
+                transform.translation = new_pos.extend(transform.translation.z);
+            }
         }
     }
 }
